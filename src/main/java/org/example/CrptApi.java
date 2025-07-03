@@ -1,13 +1,16 @@
 package org.example;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.http.client.methods.CloseableHttpResponse;
+import org.apache.http.client.methods.HttpPost;
+import org.apache.http.entity.StringEntity;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClients;
+import org.apache.http.util.EntityUtils;
 
 import java.io.IOException;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -19,7 +22,7 @@ public class CrptApi {
     private final TimeUnit timeUnit;
     private final String token;
 
-    private final HttpClient httpClient = HttpClient.newBuilder().build();
+    private final CloseableHttpClient httpClient = HttpClients.createDefault();
 
     private final ObjectMapper mapper = new ObjectMapper();
 
@@ -37,51 +40,62 @@ public class CrptApi {
 
     public String createDocument(Object document, String signature) throws InterruptedException, IOException {
 
+        /**
+         *   В конструкторе класса указывается TimeUnit timeUnit, int requestLimit, String token,
+         * на вход метода createDocument подается Object document, String signature.
+         *   Ограничение на количество запросов было реализовано с помощью Semaphore и ScheduledExecutorService.
+         *   Количество доступов к ресурсу определяется requestLimit, который подается в конструктор Semaphore,
+         *   в executorService.schedule используется semaphore.release() после 1 timeUnit.
+         */
         semaphore.acquire();
-
         executorService.schedule(() -> semaphore.release(), 1, timeUnit);
 
+        HttpPost httpPost = new HttpPost(API_URL);
+        httpPost.setHeader("Content-Type", "application/json");
+        httpPost.setHeader("Authorization", "Bearer " + token);
+
         RequestBody requestBody = new RequestBody();
-        String product_document = Base64.getEncoder().encodeToString(mapper.writeValueAsString(document).getBytes());
-        requestBody.setProduct_document(product_document);
+        String productDocument = Base64.getEncoder().encodeToString(mapper.writeValueAsString(document).getBytes());
+        requestBody.setProductDocument(productDocument);
         requestBody.setSignature(signature);
 
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(API_URL))
-                .header("Content-Type", "application/json")
-                .header("Authorization", "Bearer " + token)
-                .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(requestBody)))
-                .build();
+        StringEntity entity = new StringEntity(mapper.writeValueAsString(requestBody), "UTF-8");
+        httpPost.setEntity(entity);
 
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        CloseableHttpResponse response = httpClient.execute(httpPost);
+        String responseBody = EntityUtils.toString(response.getEntity(), StandardCharsets.UTF_8);
 
-        if (response.statusCode() != 200){
-            throw new IOException("Failed to create document, " + response.body());
+        if (response.getStatusLine().getStatusCode() != 200){
+            throw new IOException("Failed to create document, " + responseBody);
         }
 
-        return response.body();
+        return responseBody;
     }
 
     public static class RequestBody{
-        private String document_format = "MANUAL";
-        private String product_document;
+        @JsonProperty("document_format")
+        private String documentFormat = "MANUAL";
+        @JsonProperty("product_document")
+        private String productDocument;
+        @JsonProperty("signature")
         private String signature;
+        @JsonProperty("type")
         private String type = "LP_INTRODUCE_GOODS";
 
-        public String getDocument_format() {
-            return document_format;
+        public String getDocumentFormat() {
+            return documentFormat;
         }
 
-        public void setDocument_format(String document_format) {
-            this.document_format = document_format;
+        public void setDocumentFormat(String documentFormat) {
+            this.documentFormat = documentFormat;
         }
 
-        public String getProduct_document() {
-            return product_document;
+        public String getProductDocument() {
+            return productDocument;
         }
 
-        public void setProduct_document(String product_document) {
-            this.product_document = product_document;
+        public void setProductDocument(String productDocument) {
+            this.productDocument = productDocument;
         }
 
         public String getSignature() {
