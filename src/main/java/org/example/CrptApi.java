@@ -69,14 +69,10 @@ public class CrptApi implements Closeable {
             if(response!=null && response.getEntity()!=null) {
                 responseBody = EntityUtils.toString(response.getEntity(), StandardCharsets.UTF_8);
                 if (response.getStatusLine().getStatusCode() != 200){
-                    return  "Failed to create document, " + responseBody;
+                    throw new IOException("Failed to create document, " + responseBody);
                 } else return responseBody;
             }
-            else return "Failed to create document, response is null";
-
-        }
-        catch (Exception e) {
-            return e.toString();
+            else throw new IOException("Failed to create document, response is null");
         }
     }
 
