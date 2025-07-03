@@ -9,6 +9,7 @@ import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
@@ -17,7 +18,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
-public class CrptApi {
+public class CrptApi implements Closeable {
 
     private final TimeUnit timeUnit;
     private final String token;
@@ -38,38 +39,51 @@ public class CrptApi {
         this.token = token;
     }
 
+    /**
+     *   В конструкторе класса указывается TimeUnit timeUnit, int requestLimit, String token,
+     * на вход метода createDocument подается Object document, String signature.
+     *   Ограничение на количество запросов было реализовано с помощью Semaphore и ScheduledExecutorService.
+     *   Количество доступов к ресурсу определяется requestLimit, который подается в конструктор Semaphore,
+     * в executorService.schedule используется semaphore.release() после 1 timeUnit.
+     */
     public String createDocument(Object document, String signature) throws InterruptedException, IOException {
 
-        /**
-         *   В конструкторе класса указывается TimeUnit timeUnit, int requestLimit, String token,
-         * на вход метода createDocument подается Object document, String signature.
-         *   Ограничение на количество запросов было реализовано с помощью Semaphore и ScheduledExecutorService.
-         *   Количество доступов к ресурсу определяется requestLimit, который подается в конструктор Semaphore,
-         *   в executorService.schedule используется semaphore.release() после 1 timeUnit.
-         */
         semaphore.acquire();
         executorService.schedule(() -> semaphore.release(), 1, timeUnit);
-
-        HttpPost httpPost = new HttpPost(API_URL);
-        httpPost.setHeader("Content-Type", "application/json");
-        httpPost.setHeader("Authorization", "Bearer " + token);
 
         RequestBody requestBody = new RequestBody();
         String productDocument = Base64.getEncoder().encodeToString(mapper.writeValueAsString(document).getBytes());
         requestBody.setProductDocument(productDocument);
         requestBody.setSignature(signature);
+        String responseBody;
+
+        HttpPost httpPost = new HttpPost(API_URL);
+        httpPost.setHeader("Content-Type", "application/json");
+        httpPost.setHeader("Authorization", "Bearer " + token);
 
         StringEntity entity = new StringEntity(mapper.writeValueAsString(requestBody), "UTF-8");
         httpPost.setEntity(entity);
 
-        CloseableHttpResponse response = httpClient.execute(httpPost);
-        String responseBody = EntityUtils.toString(response.getEntity(), StandardCharsets.UTF_8);
+        try (CloseableHttpResponse response = httpClient.execute(httpPost)) {
 
-        if (response.getStatusLine().getStatusCode() != 200){
-            throw new IOException("Failed to create document, " + responseBody);
+            if(response!=null && response.getEntity()!=null) {
+                responseBody = EntityUtils.toString(response.getEntity(), StandardCharsets.UTF_8);
+                if (response.getStatusLine().getStatusCode() != 200){
+                    return  "Failed to create document, " + responseBody;
+                } else return responseBody;
+            }
+            else return "Failed to create document, response is null";
+
         }
+        catch (Exception e) {
+            return e.toString();
+        }
+    }
 
-        return responseBody;
+    @Override
+    public void close() throws IOException {
+        httpClient.close();
+        executorService.shutdown();
     }
 
     public static class RequestBody{
