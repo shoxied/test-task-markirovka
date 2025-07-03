@@ -56,7 +56,7 @@ public class CrptApi {
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
         if (response.statusCode() != 200){
-            return response.body();
+            throw new IOException("Failed to create document, " + response.body());
         }
 
         return response.body();
